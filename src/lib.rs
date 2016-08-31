@@ -102,64 +102,50 @@ fn parse_ch(cat: u8, ch: u8, stack: &mut Vec<u8>, mut state: u8,
 fn do_action(action: u8, ch: u8, ds: &mut Vec<Value>, ss: &mut String,
              es: &mut String) -> Result<(), JsonError> {
     match action {
-        0x1 => {
-            println!("push list");
+        0x1 => { // push list
             ds.push(Value::List(vec![]));
         },
-        0x2 => {
-            println!("push object");
+        0x2 => { // push object
             ds.push(Value::Object(BTreeMap::new()));
         },
-        0x3 => {
-            println!("pop & append");
+        0x3 => { // pop & append
             let v = ds.pop().unwrap();
             ds.last_mut().unwrap().as_list().push(v);
         },
-        0x4 => {
-            print!("pop pop & setitem: ");
+        0x4 => { // pop pop & setitem
             let v = ds.pop().unwrap();
             let k = ds.pop().unwrap();
-            println!("{:?}: {:?}", k, v);
             ds.last_mut().unwrap().as_object().insert(k.into_string(), v);
         },
-        0x5 => {
-            println!("push null");
+        0x5 => { // push null
             ds.push(Value::Null);
         },
-        0x6 => {
-            println!("push true");
+        0x6 => { // push true
             ds.push(Value::Bool(true));
         },
-        0x7 => {
-            println!("push false");
+        0x7 => { // push false
             ds.push(Value::Bool(false));
         },
-        0x8 => {
-            println!("push string: {:?}", ss);
+        0x8 => { // push string
             ds.push(Value::String(ss.clone()));
             ss.clear();
             es.clear();
         },
-        0x9 => {
-            println!("push int: {:?}", ss);
+        0x9 => { // push int
             ds.push(Value::Int(ss.parse().unwrap()));
             ss.clear();
         },
-        0xA => {
-            println!("push float: {:?}", ss);
+        0xA => { // push float
             ds.push(Value::Float(ss.parse().unwrap()));
             ss.clear();
         },
-        0xB => {
-            println!("push ch to ss: {:?}", ch as char);
+        0xB => { // push ch to ss
             ss.push(ch as char);
         },
-        0xC => {
-            println!("push ch to es: {:?}", ch as char);
+        0xC => { // push ch to es
             es.push(ch as char);
         }
-        0xD => {
-            println!("push escape: {:?}", ch);
+        0xD => { // push escape
             let c: u8 = match ch as char {
                 'b' => 8,
                 't' => 9,
@@ -171,8 +157,7 @@ fn do_action(action: u8, ch: u8, ds: &mut Vec<Value>, ss: &mut String,
             ss.push(c as char);
             es.clear();
         },
-        0xE => {
-            println!("push unicode point: {:?}", es);
+        0xE => { // push unicode code point
             let n = try!(u16::from_str_radix(es, 16).map_err(|_|
                     JsonError::InvalidEscape(format!("\\u{}", es))));
             if let Some(u) = char::from_u32(n as u32) {
@@ -186,4 +171,3 @@ fn do_action(action: u8, ch: u8, ds: &mut Vec<Value>, ss: &mut String,
     }
     Ok(())
 }
-
