@@ -1,2 +1,2 @@
 # cheery-json-rs
-JSON parser in Rust. An implementation of cheery/json-algorithm.
+A JSON parser in Rust. An implementation of [cheery/json-algorithm by Henri Tuhola](https://github.com/cheery/json-algorithm).
