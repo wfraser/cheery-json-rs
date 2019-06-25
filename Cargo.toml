@@ -2,5 +2,6 @@
 name = "cheery-json"
 version = "0.1.0"
 authors = ["William R. Fraser <wfraser@codewise.org>"]
+edition = "2018"
 
 [dependencies]

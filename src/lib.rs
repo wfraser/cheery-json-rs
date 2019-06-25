@@ -1,7 +1,10 @@
+#![deny(rust_2018_idioms)]
+
 use std::char;
 use std::collections::BTreeMap;
 use std::cmp::min;
 use std::io::{self, Read};
+use std::num::{ParseFloatError, ParseIntError};
 
 mod tables;
 use tables::{STATES, GOTOS, CATCODE};
@@ -13,6 +16,8 @@ pub enum JsonError {
     MultipleObjects,
     Syntax,
     InvalidEscape(String),
+    ParseFloatError(ParseFloatError),
+    ParseIntError(ParseIntError),
     IO(io::Error),
 }
 
@@ -36,15 +41,15 @@ impl Value {
     }
 
     fn as_list(&mut self) -> &mut Vec<Value> {
-        match self {
-            &mut Value::List(ref mut l) => l,
+        match *self {
+            Value::List(ref mut l) => l,
             _ => panic!("wrong type - expected List, got {:?}", self),
         }
     }
 
     fn as_object(&mut self) -> &mut BTreeMap<String, Value> {
-        match self {
-            &mut Value::Object(ref mut o) => o,
+        match *self {
+            Value::Object(ref mut o) => o,
             _ => panic!("wrong type - expected Object, got {:?}", self),
         }
     }
@@ -57,13 +62,11 @@ pub fn parse<R: Read>(input: R) -> Result<Value, JsonError> {
     let mut ss = String::new();         // string stack
     let mut es = String::new();         // escape stack
     for maybe_ch in input.bytes() {
-        let ch = try!(maybe_ch.map_err(JsonError::IO));
+        let ch = maybe_ch.map_err(JsonError::IO)?;
         let cat = CATCODE[min(ch, 0x7e) as usize];
-        state = try!(parse_ch(cat, ch, &mut stack, state, &mut ds,
-                              &mut ss, &mut es));
+        state = parse_ch(cat, ch, &mut stack, state, &mut ds, &mut ss, &mut es)?;
     }
-    state = try!(parse_ch(CATCODE[32], '?' as u8, &mut stack, state,
-                          &mut ds, &mut ss, &mut es));
+    state = parse_ch(CATCODE[32], b'?', &mut stack, state, &mut ds, &mut ss, &mut es)?;
     if state != 0 {
         return Err(JsonError::Truncated);
     }
@@ -76,11 +79,12 @@ pub fn parse<R: Read>(input: R) -> Result<Value, JsonError> {
 
 fn parse_ch(cat: u8, ch: u8, stack: &mut Vec<u8>, mut state: u8,
             ds: &mut Vec<Value>, ss: &mut String, es: &mut String)
-        -> Result<u8, JsonError> {
+    -> Result<u8, JsonError>
+{
     loop {
         let mut code: u16 = STATES[state as usize][cat as usize];
         let mut action: u8 = (code >> 8 & 0xFF) as u8;
-        code = code & 0xFF;
+        code &= 0xFF;
         if action == 0xFF && code == 0xFF {
             return Err(JsonError::Syntax);
         } else if action >= 0x80 {
@@ -88,7 +92,7 @@ fn parse_ch(cat: u8, ch: u8, stack: &mut Vec<u8>, mut state: u8,
             action -= 0x80;
         }
         if action > 0 {
-            try!(do_action(action, ch, ds, ss, es));
+            do_action(action, ch, ds, ss, es)?;
         }
         if code == 0xFF {
             state = stack.pop().unwrap();
@@ -99,8 +103,9 @@ fn parse_ch(cat: u8, ch: u8, stack: &mut Vec<u8>, mut state: u8,
     }
 }
 
-fn do_action(action: u8, ch: u8, ds: &mut Vec<Value>, ss: &mut String,
-             es: &mut String) -> Result<(), JsonError> {
+fn do_action(action: u8, ch: u8, ds: &mut Vec<Value>, ss: &mut String, es: &mut String)
+    -> Result<(), JsonError>
+{
     match action {
         0x1 => { // push list
             ds.push(Value::List(vec![]));
@@ -132,11 +137,13 @@ fn do_action(action: u8, ch: u8, ds: &mut Vec<Value>, ss: &mut String,
             es.clear();
         },
         0x9 => { // push int
-            ds.push(Value::Int(ss.parse().unwrap()));
+            let value = ss.parse().map_err(JsonError::ParseIntError)?;
+            ds.push(Value::Int(value));
             ss.clear();
         },
         0xA => { // push float
-            ds.push(Value::Float(ss.parse().unwrap()));
+            let value = ss.parse().map_err(JsonError::ParseFloatError)?;
+            ds.push(Value::Float(value));
             ss.clear();
         },
         0xB => { // push ch to ss
@@ -146,28 +153,29 @@ fn do_action(action: u8, ch: u8, ds: &mut Vec<Value>, ss: &mut String,
             es.push(ch as char);
         }
         0xD => { // push escape
-            let c: u8 = match ch as char {
-                'b' => 8,
-                't' => 9,
-                'n' => 10,
-                'f' => 12,
-                'r' => 13,
-                _ => { return Err(JsonError::InvalidEscape(format!("\\{}", ch))); },
+            let c: u8 = match ch {
+                b'b' => 8,
+                b't' => 9,
+                b'n' => 10,
+                b'f' => 12,
+                b'r' => 13,
+                _ => { return Err(JsonError::InvalidEscape(format!("\\{}", ch as char))); },
             };
             ss.push(c as char);
             es.clear();
         },
         0xE => { // push unicode code point
-            let n = try!(u16::from_str_radix(es, 16).map_err(|_|
-                    JsonError::InvalidEscape(format!("\\u{}", es))));
-            if let Some(u) = char::from_u32(n as u32) {
+            let n = u16::from_str_radix(es, 16)
+                .map_err(|_|
+                    JsonError::InvalidEscape(format!("\\u{}", es)))?;
+            if let Some(u) = char::from_u32(u32::from(n)) {
                 ss.push(u);
             } else {
                 return Err(JsonError::InvalidEscape(format!("\\u{}", es)));
             }
             es.clear();
         },
-        _ => panic!("JSON decoder bug"),
+        _ => panic!("JSON decoder bug: unhandled action {:#X}", action),
     }
     Ok(())
 }
